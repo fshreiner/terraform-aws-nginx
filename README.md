@@ -8,18 +8,18 @@ O projeto cria uma **VPC**, uma **subnet pública**, configura os **Security Gro
 
 ## Arquitetura
 
-VPC (10.0.0.0/16)
-├─ Subnet Pública (10.0.1.0/24)
-│ ├─ EC2 Ubuntu 22.04
-│ │ └─ Nginx (porta 80)
-│ └─ Internet Gateway
-└─ Security Group
-├─ Inbound 22 (SSH) – IP restrito
-└─ Inbound 80 (HTTP) – Público
+VPC
+ ├─ Subnet Pública
+ │   ├─ EC2 Ubuntu (Nginx)
+ │   └─ Internet Gateway
+ └─ Security Group
+     ├─ 22 (SSH)
+     └─ 80 (HTTP)
+
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
 - Terraform
 - AWS Provider
@@ -31,21 +31,21 @@ VPC (10.0.0.0/16)
 
 ---
 
-## 📁 Estrutura do Projeto
+## Estrutura do Projeto
 
 terraform-aws-nginx/
-├── provider.tf
-├── variables.tf
-├── terraform.tfvars
-├── vpc.tf
-├── security_group.tf
-├── ec2.tf
-├── outputs.tf
-└── README.md
+├─ provider.tf
+├─ variables.tf
+├─ terraform.tfvars
+├─ vpc.tf
+├─ security_group.tf
+├─ ec2.tf
+├─ outputs.tf
+└─ README.md
 
 ---
 
-## 📋 Pré-requisitos
+## Pré-requisitos
 
 - Conta na AWS
 - Terraform instalado
@@ -54,7 +54,7 @@ terraform-aws-nginx/
 
 ---
 
-## 🔐 Configuração de Credenciais (Recomendado)
+## Configuração de Credenciais (Recomendado)
 
 Configure as credenciais via variáveis de ambiente:
 
@@ -100,7 +100,7 @@ terraform destroy
 
 ## Autor
 
-# Fabio Henrique Shreiner
+### Fabio Henrique Shreiner
 
 **Infra & Operações | Cloud | DevOps | SRE**  
 Monte Azul Paulista, São Paulo, Brasil | (17) 99616-5523 | fshreiner21@gmail.com | https://www.linkedin.com/in/fabio-shreiner/
