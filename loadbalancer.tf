@@ -3,7 +3,7 @@ resource "aws_lb" "nginx_lb" {
   load_balancer_type = "application"
   internal           = false
 
-  subnets = values(aws_subnet.public)[*].id
+  subnets         = values(aws_subnet.public)[*].id
   security_groups = [aws_security_group.nginx_lb.id]
 
   tags = {
@@ -12,11 +12,11 @@ resource "aws_lb" "nginx_lb" {
 }
 
 resource "aws_lb_target_group" "nginx" {
-  name     = "${var.project_name}-tg"
-  port     = 80
-  protocol = "HTTP"
+  name        = "${var.project_name}-tg"
+  port        = 80
+  protocol    = "HTTP"
   target_type = "instance"
-  vpc_id   = aws_vpc.tf_nginx.id
+  vpc_id      = aws_vpc.tf_nginx.id
 
   health_check {
     path = "/"

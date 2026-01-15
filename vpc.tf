@@ -1,6 +1,6 @@
 resource "aws_vpc" "tf_nginx" {
-  cidr_block = "10.0.0.0/16"
-  enable_dns_support = true
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
   enable_dns_hostnames = true
 
   tags = {
@@ -23,12 +23,12 @@ data "aws_availability_zones" "available_zones" {
 resource "aws_subnet" "public" {
   for_each = {
     a = 0
-    b = 1 
+    b = 1
   }
 
   vpc_id                  = aws_vpc.tf_nginx.id
   cidr_block              = "10.0.${each.value + 1}.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[each.value]
+  availability_zone       = data.aws_availability_zones.available_zones.names[each.value]
   map_public_ip_on_launch = true
 
   tags = {
@@ -51,12 +51,12 @@ resource "aws_nat_gateway" "nginx_nat" {
 resource "aws_subnet" "private" {
   for_each = {
     a = 0
-    b = 1 
+    b = 1
   }
 
-  vpc_id     = aws_vpc.tf_nginx.id
-  cidr_block = "10.0.${each.value + 10}.0/24"
-  availability_zone = data.aws_availability_zones.available.names[each.value]
+  vpc_id            = aws_vpc.tf_nginx.id
+  cidr_block        = "10.0.${each.value + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available_zones.names[each.value]
 
   tags = {
     Name = "${var.project_name}-private-${each.key}"
@@ -86,7 +86,7 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nginx_nat_a.id
+    nat_gateway_id = aws_nat_gateway.nginx_nat.id
   }
 
   tags = {
