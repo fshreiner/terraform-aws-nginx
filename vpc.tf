@@ -1,5 +1,7 @@
 resource "aws_vpc" "tf_nginx" {
   cidr_block = "10.0.0.0/16"
+  enable_dns_support = true
+  enable_dns_hostnames = true
 
   tags = {
     Name = "${var.project_name}-vpc"
@@ -14,56 +16,51 @@ resource "aws_eip" "nat" {
   }
 }
 
-resource "aws_subnet" "public_a" {
+data "aws_availability_zones" "available_zones" {
+  state = "available"
+}
+
+resource "aws_subnet" "public" {
+  for_each = {
+    a = 0
+    b = 1 
+  }
+
   vpc_id                  = aws_vpc.tf_nginx.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "us-east-1a"
+  cidr_block              = "10.0.${each.value + 1}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[each.value]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "${var.project_name}-public-subnet-a"
+    Name = "${var.project_name}-public-${each.key}"
+    Tier = "public"
   }
 }
 
-resource "aws_nat_gateway" "nginx_nat_a" {
+resource "aws_nat_gateway" "nginx_nat" {
   allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public_a.id
+  subnet_id     = aws_subnet.public["a"].id
 
   tags = {
-    Name = "nat-gateway-A"
+    Name = "${var.project_name}-nat"
   }
 
   depends_on = [aws_internet_gateway.tf_nginx]
 }
 
-resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.tf_nginx.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "us-east-1b"
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "${var.project_name}-public-subnet-b"
-  }
-}
-
-# resource "aws_nat_gateway" "nginx_nat_b" {
-#   allocation_id = aws_eip.nat.id
-#   subnet_id     = aws_subnet.public_b.id
-
-#   tags = {
-#     Name = "nat-gateway-B"
-#   }
-
-#   depends_on = [aws_internet_gateway.tf_nginx]
-# }
-
 resource "aws_subnet" "private" {
+  for_each = {
+    a = 0
+    b = 1 
+  }
+
   vpc_id     = aws_vpc.tf_nginx.id
-  cidr_block = "10.0.3.0/24"
+  cidr_block = "10.0.${each.value + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[each.value]
 
   tags = {
-    Name = "${var.project_name}-private-subnet"
+    Name = "${var.project_name}-private-${each.key}"
+    Tier = "private"
   }
 }
 
@@ -78,6 +75,10 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.tf_nginx.id
   }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
 }
 
 resource "aws_route_table" "private" {
@@ -89,21 +90,20 @@ resource "aws_route_table" "private" {
   }
 
   tags = {
-    Name = "private-rt"
+    Name = "${var.project_name}-private-rt"
   }
 }
 
-resource "aws_route_table_association" "public_a" {
-  subnet_id      = aws_subnet.public_a.id
+resource "aws_route_table_association" "public" {
+  for_each = aws_subnet.public
+
+  subnet_id      = each.value.id
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_route_table_association" "public_b" {
-  subnet_id      = aws_subnet.public_b.id
-  route_table_id = aws_route_table.public.id
-}
+resource "aws_route_table_association" "private" {
+  for_each = aws_subnet.private
 
-resource "aws_route_table_association" "private_a" {
-  subnet_id      = aws_subnet.private.id
+  subnet_id      = each.value.id
   route_table_id = aws_route_table.private.id
 }
