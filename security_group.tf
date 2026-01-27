@@ -18,7 +18,7 @@ resource "aws_security_group" "nginx_lb" {
   }
 }
 
-resource "aws_security_group" "nginx_ec2" {
+resource "aws_security_group" "nginx_instances" {
   vpc_id = aws_vpc.tf_nginx.id
 
   ingress {

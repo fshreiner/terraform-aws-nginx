@@ -13,6 +13,6 @@ variable "instance_type" {
   description = "default instance type"
 }
 
-variable "my_ip" {
-  description = "local IP for SSH access"
-}
+# variable "my_ip" {
+#   description = "local IP for SSH access"
+# }
