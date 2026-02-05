@@ -3,10 +3,12 @@ provider "aws" {
 }
 
 data "terraform_remote_state" "network" {
-  backend = "local"
+  backend = "s3"
 
   config = {
-    path = "../network/terraform.tfstate"
+    bucket = "terraform-states-fshreiner"
+    key    = "network/terraform.tfstate"
+    region = "us-east-1"
   }
 }
 
