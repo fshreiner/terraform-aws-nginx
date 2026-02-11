@@ -1,7 +1,3 @@
-resource "aws_route53_zone" "this" {
-  name = "fabioshreiner.com.br"
-}
-
 resource "aws_acm_certificate" "this" {
   domain_name       = "nginx.fabioshreiner.com.br"
   validation_method = "DNS"
