@@ -12,3 +12,7 @@ output "target_group_arn" {
   description = "ARN of the Target Group"
   value       = aws_lb_target_group.this.arn
 }
+
+output "alb_zone_id" {
+  value = aws_lb.this.zone_id
+}

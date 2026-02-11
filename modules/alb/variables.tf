@@ -17,3 +17,8 @@ variable "alb_sg_id" {
   description = "ALB Security Group"
   type        = string
 }
+
+variable "certificate_arn" {
+  description = "ACM Certificate ARN"
+  type = string
+}
