@@ -12,6 +12,16 @@ data "terraform_remote_state" "network" {
   }
 }
 
+data "terraform_remote_state" "foundation" {
+  backend = "s3"
+
+  config = {
+    bucket = "terraform-states-fshreiner"
+    key    = "foundation/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 module "security_groups" {
   source = "../../modules/security_groups"
 
@@ -26,7 +36,7 @@ module "alb" {
   vpc_id            = data.terraform_remote_state.network.outputs.vpc_id
   public_subnet_ids = data.terraform_remote_state.network.outputs.public_subnet_ids
   alb_sg_id         = module.security_groups.alb_sg_id
-  certificate_arn   = aws_acm_certificate_validation.this.certificate_arn
+  certificate_arn   = aws_acm_certificate_validation.wildcard.certificate_arn
 }
 
 module "autoscaling" {
