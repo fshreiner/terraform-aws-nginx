@@ -1,5 +1,5 @@
 resource "aws_acm_certificate" "wildcard" {
-  domain_name       = "*.fabioshreiner.com.br"
+  domain_name       = "*.${var.domain_name}"
   validation_method = "DNS"
 
   lifecycle {

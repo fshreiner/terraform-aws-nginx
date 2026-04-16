@@ -1,0 +1,56 @@
+.
+├── estrutura.txt
+├── _legacy
+│   ├── ami.tf
+│   ├── autoscaling.tf
+│   ├── launch_template.tf
+│   ├── loadbalancer.tf
+│   ├── main.tf
+│   ├── provider.tf
+│   ├── security_group.tf
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
+│   ├── terraform.tfvars
+│   ├── variables.tf
+│   └── vpc.tf
+├── modules
+│   ├── alb
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   ├── autoscaling
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   ├── security_groups
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   └── vpc
+│       ├── main.tf
+│       ├── outputs.tf
+│       └── variables.tf
+├── README.md
+├── stacks
+│   ├── bootstrap
+│   │   ├── aws_route53.tf
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   ├── terraform.tfstate
+│   │   ├── terraform.tfstate.backup
+│   │   ├── terraform.tfvars
+│   │   └── variables.tf
+│   ├── compute
+│   │   ├── acm.tf
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── route53.tf
+│   └── network
+│       ├── backend.tf
+│       ├── main.tf
+│       └── outputs.tf
+└── terraform_bundle.txt
+
+11 directories, 43 files

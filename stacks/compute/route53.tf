@@ -25,7 +25,7 @@ resource "aws_acm_certificate_validation" "wildcard" {
 
 resource "aws_route53_record" "nginx" {
   zone_id = data.terraform_remote_state.foundation.outputs.zone_id
-  name    = "nginx.fabioshreiner.com.br"
+  name    = "${var.app_record_hostname}.${var.domain_name}"
   type    = "A"
 
   alias {

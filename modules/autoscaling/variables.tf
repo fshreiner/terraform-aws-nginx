@@ -43,3 +43,9 @@ variable "max_size" {
   type    = number
   default = 3
 }
+
+variable "target_cpu_percent" {
+  description = "Utilização média de CPU alvo para o Target Tracking (ASG)"
+  type        = number
+  default     = 50
+}

@@ -1,0 +1,1245 @@
+.
+├── estrutura.txt
+├── _legacy
+│   ├── ami.tf
+│   ├── autoscaling.tf
+│   ├── launch_template.tf
+│   ├── loadbalancer.tf
+│   ├── main.tf
+│   ├── provider.tf
+│   ├── security_group.tf
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
+│   ├── terraform.tfvars
+│   ├── variables.tf
+│   └── vpc.tf
+├── modules
+│   ├── alb
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   ├── autoscaling
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   ├── security_groups
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── variables.tf
+│   └── vpc
+│       ├── main.tf
+│       ├── outputs.tf
+│       └── variables.tf
+├── README.md
+├── stacks
+│   ├── bootstrap
+│   │   ├── aws_route53.tf
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   ├── terraform.tfstate
+│   │   ├── terraform.tfstate.backup
+│   │   ├── terraform.tfvars
+│   │   └── variables.tf
+│   ├── compute
+│   │   ├── acm.tf
+│   │   ├── backend.tf
+│   │   ├── main.tf
+│   │   ├── outputs.tf
+│   │   └── route53.tf
+│   └── network
+│       ├── backend.tf
+│       ├── main.tf
+│       └── outputs.tf
+└── terraform_bundle.txt
+
+11 directories, 43 files
+\n===== FILE: ./_legacy/loadbalancer.tf =====\n
+resource "aws_lb" "nginx_lb" {
+  name               = "${var.project_name}-alb"
+  load_balancer_type = "application"
+  internal           = false
+
+  subnets         = values(aws_subnet.public)[*].id
+  security_groups = [aws_security_group.nginx_lb.id]
+
+  tags = {
+    Name = "${var.project_name}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "nginx" {
+  name        = "${var.project_name}-tg"
+  port        = 80
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.tf_nginx.id
+
+  health_check {
+    path = "/"
+  }
+
+  tags = {
+    Name = "${var.project_name}-tg"
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.nginx_lb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.nginx.arn
+  }
+}\n===== FILE: ./_legacy/main.tf =====\n
+module "vpc" {
+  source = "./modules/vpc"
+
+  project_name = "nginx-lab"
+  vpc_cidr     = "10.0.0.0/16"
+
+  availability_zones = [
+    "us-east-1a",
+    "us-east-1b"
+  ]
+
+  public_subnets = [
+    "10.0.1.0/24",
+    "10.0.2.0/24"
+  ]
+
+  private_subnets = [
+    "10.0.11.0/24",
+    "10.0.12.0/24"
+  ]
+}
+
+module "security_groups" {
+  source = "./modules/security_groups"
+
+  project_name = "nginx-lab"
+  vpc_id       = module.vpc.vpc_id
+}
+
+module "alb" {
+  source = "./modules/alb"
+
+  project_name      = "nginx-lab"
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+  alb_sg_id         = module.security_groups.alb_sg_id
+}
+
+module "autoscaling" {
+  source = "./modules/autoscaling"
+
+  project_name       = "nginx-lab"
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  ec2_sg_id          = module.security_groups.ec2_sg_id
+  target_group_arn   = module.alb.target_group_arn
+}\n===== FILE: ./_legacy/autoscaling.tf =====\n
+resource "aws_autoscaling_group" "nginx" {
+  name = "${var.project_name}-asg"
+
+  min_size         = 1
+  desired_capacity = 1
+  max_size         = 3
+
+  vpc_zone_identifier = [
+    aws_subnet.private["a"].id,
+    aws_subnet.private["b"].id
+  ]
+
+  launch_template {
+    id      = aws_launch_template.nginx.id
+    version = "$Latest"
+  }
+
+  target_group_arns = [
+    aws_lb_target_group.nginx.arn
+  ]
+
+  health_check_type         = "ELB"
+  health_check_grace_period = 60
+
+  tag {
+    key                 = "Name"
+    value               = "${var.project_name}-nginx"
+    propagate_at_launch = true
+  }
+}
+
+# Scale Out Policy (subir instancias)
+resource "aws_autoscaling_policy" "scale_out" {
+  name                   = "scale-out"
+  autoscaling_group_name = aws_autoscaling_group.nginx.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = 1
+  cooldown               = 60
+}
+
+# Scale In Policy (descer instancias)
+resource "aws_autoscaling_policy" "scale_in" {
+  name                   = "scale-in"
+  autoscaling_group_name = aws_autoscaling_group.nginx.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = -1
+  cooldown               = 60
+}
+
+# CloudWatch
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "${var.project_name}-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 70
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.nginx.name
+  }
+
+  alarm_actions = [
+    aws_autoscaling_policy.scale_out.arn
+  ]
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_low" {
+  alarm_name          = "${var.project_name}-cpu-low"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 30
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.nginx.name
+  }
+
+  alarm_actions = [
+    aws_autoscaling_policy.scale_in.arn
+  ]
+}\n===== FILE: ./_legacy/ami.tf =====\n
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}\n===== FILE: ./_legacy/terraform.tfvars =====\n
+\n===== FILE: ./_legacy/vpc.tf =====\n
+resource "aws_vpc" "tf_nginx" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = {
+    Name = "${var.project_name}-vpc"
+  }
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name = "${var.project_name}-nat-eip"
+  }
+}
+
+data "aws_availability_zones" "available_zones" {
+  state = "available"
+}
+
+resource "aws_subnet" "public" {
+  for_each = {
+    a = 0
+    b = 1
+  }
+
+  vpc_id                  = aws_vpc.tf_nginx.id
+  cidr_block              = "10.0.${each.value + 1}.0/24"
+  availability_zone       = data.aws_availability_zones.available_zones.names[each.value]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.project_name}-public-${each.key}"
+    Tier = "public"
+  }
+}
+
+resource "aws_nat_gateway" "nginx_nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public["a"].id
+
+  tags = {
+    Name = "${var.project_name}-nat"
+  }
+
+  depends_on = [aws_internet_gateway.tf_nginx]
+}
+
+resource "aws_subnet" "private" {
+  for_each = {
+    a = 0
+    b = 1
+  }
+
+  vpc_id            = aws_vpc.tf_nginx.id
+  cidr_block        = "10.0.${each.value + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available_zones.names[each.value]
+
+  tags = {
+    Name = "${var.project_name}-private-${each.key}"
+    Tier = "private"
+  }
+}
+
+resource "aws_internet_gateway" "tf_nginx" {
+  vpc_id = aws_vpc.tf_nginx.id
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.tf_nginx.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.tf_nginx.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.tf_nginx.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nginx_nat.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-private-rt"
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  for_each = aws_subnet.public
+
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "private" {
+  for_each = aws_subnet.private
+
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.private.id
+}\n===== FILE: ./_legacy/.terraform.lock.hcl =====\n
+# This file is maintained automatically by "terraform init".
+# Manual edits may be lost in future updates.
+
+provider "registry.terraform.io/hashicorp/aws" {
+  version     = "6.27.0"
+  constraints = "6.27.0"
+  hashes = [
+    "h1:bixp2PSsP5ZGBczGCxcbSDn6lF5QFlUXlNroq9cdab4=",
+    "zh:177a24b806c72e8484b5cabc93b2b38e3d770ae6f745a998b54d6619fd0e8129",
+    "zh:4ac4a85c14fb868a3306b542e6a56c10bd6c6d5a67bc0c9b8f6a9060cf5f3be7",
+    "zh:552652185bc85c8ba1da1d65dea47c454728a5c6839c458b6dcd3ce71c19ccfc",
+    "zh:60284b8172d09aee91eae0856f09855eaf040ce3a58d6933602ae17c53f8ed04",
+    "zh:6be38d156756ca61fb8e7c752cc5d769cd709686700ac4b230f40a6e95b5dbc9",
+    "zh:7a409138fae4ef42e3a637e37cb9efedf96459e28a3c764fc4e855e8db9a7485",
+    "zh:8070cf5224ed1ed3a3e9a59f7c30ff88bf071c7567165275d477c1738a56c064",
+    "zh:894439ef340a9a79f69cd759e27ad11c7826adeca27be1b1ca82b3c9702fa300",
+    "zh:89d035eebf08a97c89374ff06040955ddc09f275ecca609d0c9d58d149bef5cf",
+    "zh:985b1145d724fc1f38369099e4a5087141885740fd6c0b1dbc492171e73c2e49",
+    "zh:9b12af85486a96aedd8d7984b0ff811a4b42e3d88dad1a3fb4c0b580d04fa425",
+    "zh:a80b47ae8d1475201c86bd94a5dcb9dd4da5e8b73102a90820b68b66b76d50fd",
+    "zh:d3395be1556210f82199b9166a6b2e677cee9c4b67e96e63f6c3a98325ad7ab0",
+    "zh:db0b869d09657f6f1e4110b56093c5fcdf9dbdd97c020db1e577b239c0adcbce",
+    "zh:ffc72e680370ae7c21f9bd3082c6317730df805c6797427839a6b6b7e9a26a01",
+  ]
+}
+\n===== FILE: ./_legacy/launch_template.tf =====\n
+resource "aws_launch_template" "nginx" {
+  name_prefix   = "${var.project_name}-template-"
+  image_id      = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+
+  vpc_security_group_ids = [
+    aws_security_group.nginx_instances.id
+  ]
+
+  user_data = base64encode(<<-EOF
+              #!/bin/bash
+              apt update
+              apt install -y nginx
+              systemctl enable nginx
+              systemctl start nginx
+              EOF
+  )
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "${var.project_name}-nginx"
+    }
+  }
+}\n===== FILE: ./_legacy/provider.tf =====\n
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "6.27.0"
+    }
+  }
+}\n===== FILE: ./_legacy/variables.tf =====\n
+variable "aws_region" {
+  default     = "us-east-1"
+  description = "default region"
+}
+
+variable "project_name" {
+  default     = "terraform-nginx"
+  description = "default name of project"
+}
+
+variable "instance_type" {
+  default     = "t3.micro"
+  description = "default instance type"
+}
+
+# variable "my_ip" {
+#   description = "local IP for SSH access"
+# }\n===== FILE: ./_legacy/security_group.tf =====\n
+resource "aws_security_group" "nginx_lb" {
+  name   = "${var.project_name}-sg"
+  vpc_id = aws_vpc.tf_nginx.id
+
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "nginx_instances" {
+  vpc_id = aws_vpc.tf_nginx.id
+
+  ingress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.nginx_lb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}\n===== FILE: ./modules/security_groups/outputs.tf =====\n
+output "alb_sg_id" {
+  description = "ID do Security Group do ALB"
+  value       = aws_security_group.alb.id
+}
+
+output "ec2_sg_id" {
+  description = "ID do Security Group das EC2"
+  value       = aws_security_group.ec2.id
+}\n===== FILE: ./modules/security_groups/main.tf =====\n
+resource "aws_security_group" "alb" {
+  name        = "${var.project_name}-alb-sg"
+  description = "Application Load Balancer Security Group"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "HTTP from Internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS from Internet"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-alb-sg"
+  }
+}
+
+resource "aws_security_group" "ec2" {
+  name        = "${var.project_name}-ec2-sg"
+  description = "EC2 Instances Security Group"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "HTTP from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-ec2-sg"
+  }
+}\n===== FILE: ./modules/security_groups/variables.tf =====\n
+variable "project_name" {
+  description = "Project Name (tags)"
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID where the Security Groups will be created"
+  type        = string
+}\n===== FILE: ./modules/vpc/outputs.tf =====\n
+output "vpc_id" {
+  description = "VPC ID"
+  value       = aws_vpc.this.id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnets IDs"
+  value       = aws_subnet.public[*].id
+}
+
+output "private_subnet_ids" {
+  description = "Private subnets IDs"
+  value       = aws_subnet.private[*].id
+}
+
+output "nat_gateway_id" {
+  description = "NAT Gateway ID"
+  value       = aws_nat_gateway.this.id
+}\n===== FILE: ./modules/vpc/main.tf =====\n
+resource "aws_vpc" "this" {
+  cidr_block = var.vpc_cidr
+
+  tags = {
+    Name = "${var.project_name}-vpc"
+  }
+}
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
+}
+
+resource "aws_subnet" "public" {
+  count                   = length(var.public_subnets)
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = var.public_subnets[count.index]
+  availability_zone       = var.availability_zones[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.project_name}-public-${count.index}"
+  }
+}
+
+resource "aws_nat_gateway" "this" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
+
+  tags = {
+    Name = "${var.project_name}-nat-gateway"
+  }
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_subnet" "private" {
+  count             = length(var.private_subnets)
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.private_subnets[count.index]
+  availability_zone = var.availability_zones[count.index]
+
+  tags = {
+    Name = "${var.project_name}-private-${count.index}"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  count          = length(aws_subnet.public)
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.this.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-private-rt"
+  }
+}
+
+resource "aws_route_table_association" "private" {
+  count          = length(aws_subnet.private)
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name = "${var.project_name}-nat-eip"
+  }
+}\n===== FILE: ./modules/vpc/variables.tf =====\n
+variable "project_name" {
+  description = "Project Name (tags)"
+  type = string
+}
+
+variable "vpc_cidr" {
+  description = "VCP CIDR"
+  type = string
+}
+
+variable "public_subnets" {
+  description = "CIDRs list of public subnets"
+  type = list(string)
+}
+
+variable "private_subnets" {
+  description = "CIDRs list of private subnets"
+  type = list(string)
+}
+
+variable "availability_zones" {
+  description = "AZs list where subnets will be created"
+  type = list(string)
+}\n===== FILE: ./modules/alb/outputs.tf =====\n
+output "alb_dns_name" {
+  description = "Public DNS of the Load Balancer"
+  value       = aws_lb.this.dns_name
+}
+
+output "alb_arn" {
+  description = "ARN of the Load Balancer"
+  value       = aws_lb.this.arn
+}
+
+output "target_group_arn" {
+  description = "ARN of the Target Group"
+  value       = aws_lb_target_group.this.arn
+}
+
+output "alb_zone_id" {
+  value = aws_lb.this.zone_id
+}\n===== FILE: ./modules/alb/main.tf =====\n
+resource "aws_lb" "this" {
+  name               = "${var.project_name}-alb"
+  load_balancer_type = "application"
+  internal           = false
+
+  subnets         = var.public_subnet_ids
+  security_groups = [var.alb_sg_id]
+
+  tags = {
+    Name = "${var.project_name}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "this" {
+  name     = "${var.project_name}-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = var.vpc_id
+
+  health_check {
+    path                = "/"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200"
+  }
+
+  tags = {
+    Name = "${var.project_name}-tg"
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+
+  certificate_arn = var.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}\n===== FILE: ./modules/alb/variables.tf =====\n
+variable "project_name" {
+  description = "Project Name"
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID"
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "List of public subnets for ALB."
+  type        = list(string)
+}
+
+variable "alb_sg_id" {
+  description = "ALB Security Group"
+  type        = string
+}
+
+variable "certificate_arn" {
+  description = "ACM Certificate ARN"
+  type = string
+}\n===== FILE: ./modules/autoscaling/outputs.tf =====\n
+output "asg_name" {
+  description = "Auto Scaling Group Name"
+  value       = aws_autoscaling_group.this.name
+}\n===== FILE: ./modules/autoscaling/main.tf =====\n
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  owners = ["099720109477"] # Canonical
+}
+
+resource "aws_launch_template" "this" {
+  name_prefix   = "${var.project_name}-lt-"
+  image_id      = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+
+  vpc_security_group_ids = [var.ec2_sg_id]
+
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    apt update -y
+    apt install -y nginx
+    systemctl enable nginx
+    systemctl start nginx
+  EOF
+  )
+
+  tag_specifications {
+    resource_type = "instance"
+
+    tags = {
+      Name = "${var.project_name}-ec2"
+    }
+  }
+}
+
+resource "aws_autoscaling_group" "this" {
+  name = "${var.project_name}-asg"
+
+  desired_capacity = var.desired_capacity
+  min_size         = var.min_size
+  max_size         = var.max_size
+
+  vpc_zone_identifier = var.private_subnet_ids
+
+  target_group_arns = [var.target_group_arn]
+
+  launch_template {
+    id      = aws_launch_template.this.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "${var.project_name}-asg"
+    propagate_at_launch = true
+  }
+
+  health_check_type         = "ELB"
+  health_check_grace_period = 60
+}
+
+# SCALE OUT
+resource "aws_autoscaling_policy" "scale_out" {
+  name                   = "${var.project_name}-scale-out"
+  autoscaling_group_name = aws_autoscaling_group.this.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = 1
+  cooldown               = 60
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "${var.project_name}-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 70
+
+  alarm_actions = [aws_autoscaling_policy.scale_out.arn]
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.this.name
+  }
+}
+
+# SCALE IN
+resource "aws_autoscaling_policy" "scale_in" {
+  name                   = "${var.project_name}-scale-in"
+  autoscaling_group_name = aws_autoscaling_group.this.name
+  adjustment_type        = "ChangeInCapacity"
+  scaling_adjustment     = -1
+  cooldown               = 60
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_low" {
+  alarm_name          = "${var.project_name}-cpu-low"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 30
+
+  alarm_actions = [aws_autoscaling_policy.scale_in.arn]
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.this.name
+  }
+}\n===== FILE: ./modules/autoscaling/variables.tf =====\n
+variable "project_name" {
+  description = "Project Name"
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID"
+  type        = string
+}
+
+variable "private_subnet_ids" {
+  description = "Private subnets for instances"
+  type        = list(string)
+}
+
+variable "ec2_sg_id" {
+  description = "Security Group for EC2 instances"
+  type        = string
+}
+
+variable "target_group_arn" {
+  description = "ARN from Target Group from ALB"
+  type        = string
+}
+
+variable "instance_type" {
+  description = "EC2 Instance Type"
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "desired_capacity" {
+  type    = number
+  default = 1
+}
+
+variable "min_size" {
+  type    = number
+  default = 1
+}
+
+variable "max_size" {
+  type    = number
+  default = 3
+}\n===== FILE: ./stacks/compute/backend.tf =====\n
+terraform {
+  backend "s3" {
+    bucket         = "terraform-states-fshreiner"
+    key            = "compute/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}\n===== FILE: ./stacks/compute/outputs.tf =====\n
+output "alb_dns_name" {
+  value = module.alb.alb_dns_name
+}\n===== FILE: ./stacks/compute/main.tf =====\n
+provider "aws" {
+  region = "us-east-1"
+}
+
+data "terraform_remote_state" "network" {
+  backend = "s3"
+
+  config = {
+    bucket = "terraform-states-fshreiner"
+    key    = "network/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+data "terraform_remote_state" "foundation" {
+  backend = "s3"
+
+  config = {
+    bucket = "terraform-states-fshreiner"
+    key    = "foundation/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+module "security_groups" {
+  source = "../../modules/security_groups"
+
+  project_name = "nginx-lab"
+  vpc_id       = data.terraform_remote_state.network.outputs.vpc_id
+}
+
+module "alb" {
+  source = "../../modules/alb"
+
+  project_name      = "nginx-lab"
+  vpc_id            = data.terraform_remote_state.network.outputs.vpc_id
+  public_subnet_ids = data.terraform_remote_state.network.outputs.public_subnet_ids
+  alb_sg_id         = module.security_groups.alb_sg_id
+  certificate_arn   = aws_acm_certificate_validation.wildcard.certificate_arn
+}
+
+module "autoscaling" {
+  source = "../../modules/autoscaling"
+
+  project_name       = "nginx-lab"
+  vpc_id             = data.terraform_remote_state.network.outputs.vpc_id
+  private_subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
+  ec2_sg_id          = module.security_groups.ec2_sg_id
+  target_group_arn   = module.alb.target_group_arn
+}\n===== FILE: ./stacks/compute/.terraform.lock.hcl =====\n
+# This file is maintained automatically by "terraform init".
+# Manual edits may be lost in future updates.
+
+provider "registry.terraform.io/hashicorp/aws" {
+  version = "6.31.0"
+  hashes = [
+    "h1:yrswE/HFLKpPvs2622EyUPWv87ir0OuixxhrESWTt4g=",
+    "zh:0184b83f61dfb2f90f051d6a10e85d554809eb7dec13c49000bc884cfd1e956d",
+    "zh:16f76019ad67f0dfafea2c65b17bd1aa289cb5c275521df71337e23b08af6fec",
+    "zh:296ebaa261729b78159694e3ca709735c5c67913d6107c7e1abd4d1e9b05fc6b",
+    "zh:6b4c37bd7e8abca1b428903212de731b04695dcc59e2ba2acefc3d936b36c4dc",
+    "zh:6f49e2f7464dbb9d6911dd32951637f589d21a5c3c9a7c5056837701977ec803",
+    "zh:6fc4095e59286dd83e9528346390b0b07b3bffa1d46b50027c9e080352207626",
+    "zh:98816c0c5d1b956b564c2d2feb423fdf4eb3e476a6c5202668a285ff3b2d6910",
+    "zh:9b12af85486a96aedd8d7984b0ff811a4b42e3d88dad1a3fb4c0b580d04fa425",
+    "zh:a70b34fb8d5a7d3b3823046938f3c9b0527afa93d02086b3d87ffa668c9a350e",
+    "zh:c24c0a58a8301d13cb4c27738840c8e7e0f29563ccf8d6b5ca1c87fcf21bdf89",
+    "zh:c95d44b2baea56b03198acaaf50f9196504d0207118e1afca7d70b5840315dc4",
+    "zh:db5a7692e2bde721a37b83f89eb9886715dbd17eb45858b1b58b8f7903ce5144",
+    "zh:db706b23a652e06c6c3f5de1da70e55a20a4fc2f73c01c24f7b9cd39a9a35f56",
+    "zh:fb781119fa98d8b0318ffb26ef013d5e674637e8f6a36b4b9c2742f24c022538",
+    "zh:fc459573b260a5a295d5fed442bf4f44fe034a0702ca22a65d320bd3b3e70eb5",
+  ]
+}
+\n===== FILE: ./stacks/compute/acm.tf =====\n
+resource "aws_acm_certificate" "wildcard" {
+  domain_name       = "*.fabioshreiner.com.br"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}\n===== FILE: ./stacks/compute/route53.tf =====\n
+resource "aws_route53_record" "acm_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.wildcard.domain_validation_options :
+    dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id = data.terraform_remote_state.foundation.outputs.zone_id
+  name    = each.value.name
+  type    = each.value.type
+  ttl     = 60
+  records = [each.value.record]
+}
+
+resource "aws_acm_certificate_validation" "wildcard" {
+  certificate_arn = aws_acm_certificate.wildcard.arn
+  validation_record_fqdns = [
+    for record in aws_route53_record.acm_validation :
+    record.fqdn
+  ]
+}
+
+resource "aws_route53_record" "nginx" {
+  zone_id = data.terraform_remote_state.foundation.outputs.zone_id
+  name    = "nginx.fabioshreiner.com.br"
+  type    = "A"
+
+  alias {
+    name                   = module.alb.alb_dns_name
+    zone_id                = module.alb.alb_zone_id
+    evaluate_target_health = true
+  }
+}\n===== FILE: ./stacks/bootstrap/backend.tf =====\n
+terraform {
+  backend "s3" {
+    bucket         = "terraform-states-fshreiner"
+    key            = "foundation/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}\n===== FILE: ./stacks/bootstrap/outputs.tf =====\n
+output "state_bucket_name" {
+  value = aws_s3_bucket.terraform_state.bucket
+}
+
+output "lock_table_name" {
+  value = aws_dynamodb_table.terraform_locks.name
+}
+
+output "zone_id" {
+  value = aws_route53_zone.this.zone_id
+}
+
+output "zone_name" {
+  value = aws_route53_zone.this.name
+}\n===== FILE: ./stacks/bootstrap/main.tf =====\n
+provider "aws" {
+  region = var.region
+}
+
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = var.state_bucket_name
+
+  tags = {
+    Name = "terraform-remote-state"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "this" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_dynamodb_table" "terraform_locks" {
+  name         = var.lock_table_name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+}\n===== FILE: ./stacks/bootstrap/aws_route53.tf =====\n
+resource "aws_route53_zone" "this" {
+  name = "fabioshreiner.com.br"
+}\n===== FILE: ./stacks/bootstrap/terraform.tfvars =====\n
+state_bucket_name = "terraform-states-fshreiner"
+lock_table_name   = "terraform-locks"\n===== FILE: ./stacks/bootstrap/.terraform.lock.hcl =====\n
+# This file is maintained automatically by "terraform init".
+# Manual edits may be lost in future updates.
+
+provider "registry.terraform.io/hashicorp/aws" {
+  version = "6.31.0"
+  hashes = [
+    "h1:yrswE/HFLKpPvs2622EyUPWv87ir0OuixxhrESWTt4g=",
+    "zh:0184b83f61dfb2f90f051d6a10e85d554809eb7dec13c49000bc884cfd1e956d",
+    "zh:16f76019ad67f0dfafea2c65b17bd1aa289cb5c275521df71337e23b08af6fec",
+    "zh:296ebaa261729b78159694e3ca709735c5c67913d6107c7e1abd4d1e9b05fc6b",
+    "zh:6b4c37bd7e8abca1b428903212de731b04695dcc59e2ba2acefc3d936b36c4dc",
+    "zh:6f49e2f7464dbb9d6911dd32951637f589d21a5c3c9a7c5056837701977ec803",
+    "zh:6fc4095e59286dd83e9528346390b0b07b3bffa1d46b50027c9e080352207626",
+    "zh:98816c0c5d1b956b564c2d2feb423fdf4eb3e476a6c5202668a285ff3b2d6910",
+    "zh:9b12af85486a96aedd8d7984b0ff811a4b42e3d88dad1a3fb4c0b580d04fa425",
+    "zh:a70b34fb8d5a7d3b3823046938f3c9b0527afa93d02086b3d87ffa668c9a350e",
+    "zh:c24c0a58a8301d13cb4c27738840c8e7e0f29563ccf8d6b5ca1c87fcf21bdf89",
+    "zh:c95d44b2baea56b03198acaaf50f9196504d0207118e1afca7d70b5840315dc4",
+    "zh:db5a7692e2bde721a37b83f89eb9886715dbd17eb45858b1b58b8f7903ce5144",
+    "zh:db706b23a652e06c6c3f5de1da70e55a20a4fc2f73c01c24f7b9cd39a9a35f56",
+    "zh:fb781119fa98d8b0318ffb26ef013d5e674637e8f6a36b4b9c2742f24c022538",
+    "zh:fc459573b260a5a295d5fed442bf4f44fe034a0702ca22a65d320bd3b3e70eb5",
+  ]
+}
+\n===== FILE: ./stacks/bootstrap/variables.tf =====\n
+variable "region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "state_bucket_name" {
+  type = string
+}
+
+variable "lock_table_name" {
+  type = string
+}\n===== FILE: ./stacks/network/backend.tf =====\n
+terraform {
+  backend "s3" {
+    bucket         = "terraform-states-fshreiner"
+    key            = "network/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-locks"
+    encrypt        = true
+  }
+}\n===== FILE: ./stacks/network/outputs.tf =====\n
+output "vpc_id" {
+  description = "VPC ID"
+  value       = module.vpc.vpc_id
+}
+
+output "public_subnet_ids" {
+  description = "IDs of public subnets"
+  value       = module.vpc.public_subnet_ids
+}
+
+output "private_subnet_ids" {
+  description = "IDs of private subnets"
+  value       = module.vpc.private_subnet_ids
+}\n===== FILE: ./stacks/network/main.tf =====\n
+provider "aws" {
+  region = "us-east-1"
+}
+
+module "vpc" {
+  source = "../../modules/vpc"
+
+  project_name       = "nginx-lab"
+  vpc_cidr           = "10.0.0.0/16"
+  public_subnets     = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets    = ["10.0.11.0/24", "10.0.12.0/24"]
+  availability_zones = ["us-east-1a", "us-east-1b"]
+}\n===== FILE: ./stacks/network/.terraform.lock.hcl =====\n
+# This file is maintained automatically by "terraform init".
+# Manual edits may be lost in future updates.
+
+provider "registry.terraform.io/hashicorp/aws" {
+  version = "6.31.0"
+  hashes = [
+    "h1:yrswE/HFLKpPvs2622EyUPWv87ir0OuixxhrESWTt4g=",
+    "zh:0184b83f61dfb2f90f051d6a10e85d554809eb7dec13c49000bc884cfd1e956d",
+    "zh:16f76019ad67f0dfafea2c65b17bd1aa289cb5c275521df71337e23b08af6fec",
+    "zh:296ebaa261729b78159694e3ca709735c5c67913d6107c7e1abd4d1e9b05fc6b",
+    "zh:6b4c37bd7e8abca1b428903212de731b04695dcc59e2ba2acefc3d936b36c4dc",
+    "zh:6f49e2f7464dbb9d6911dd32951637f589d21a5c3c9a7c5056837701977ec803",
+    "zh:6fc4095e59286dd83e9528346390b0b07b3bffa1d46b50027c9e080352207626",
+    "zh:98816c0c5d1b956b564c2d2feb423fdf4eb3e476a6c5202668a285ff3b2d6910",
+    "zh:9b12af85486a96aedd8d7984b0ff811a4b42e3d88dad1a3fb4c0b580d04fa425",
+    "zh:a70b34fb8d5a7d3b3823046938f3c9b0527afa93d02086b3d87ffa668c9a350e",
+    "zh:c24c0a58a8301d13cb4c27738840c8e7e0f29563ccf8d6b5ca1c87fcf21bdf89",
+    "zh:c95d44b2baea56b03198acaaf50f9196504d0207118e1afca7d70b5840315dc4",
+    "zh:db5a7692e2bde721a37b83f89eb9886715dbd17eb45858b1b58b8f7903ce5144",
+    "zh:db706b23a652e06c6c3f5de1da70e55a20a4fc2f73c01c24f7b9cd39a9a35f56",
+    "zh:fb781119fa98d8b0318ffb26ef013d5e674637e8f6a36b4b9c2742f24c022538",
+    "zh:fc459573b260a5a295d5fed442bf4f44fe034a0702ca22a65d320bd3b3e70eb5",
+  ]
+}

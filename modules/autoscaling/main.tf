@@ -21,14 +21,7 @@ resource "aws_launch_template" "this" {
 
   vpc_security_group_ids = [var.ec2_sg_id]
 
-  user_data = base64encode(<<-EOF
-    #!/bin/bash
-    apt update -y
-    apt install -y nginx
-    systemctl enable nginx
-    systemctl start nginx
-  EOF
-  )
+  user_data = base64encode(file("${path.module}/user-data.sh"))
 
   tag_specifications {
     resource_type = "instance"
@@ -65,54 +58,15 @@ resource "aws_autoscaling_group" "this" {
   health_check_grace_period = 60
 }
 
-# SCALE OUT
-resource "aws_autoscaling_policy" "scale_out" {
-  name                   = "${var.project_name}-scale-out"
+resource "aws_autoscaling_policy" "cpu_target" {
+  name                   = "${var.project_name}-cpu-target"
   autoscaling_group_name = aws_autoscaling_group.this.name
-  adjustment_type        = "ChangeInCapacity"
-  scaling_adjustment     = 1
-  cooldown               = 60
-}
+  policy_type            = "TargetTrackingScaling"
 
-resource "aws_cloudwatch_metric_alarm" "cpu_high" {
-  alarm_name          = "${var.project_name}-cpu-high"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = 2
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = 60
-  statistic           = "Average"
-  threshold           = 70
-
-  alarm_actions = [aws_autoscaling_policy.scale_out.arn]
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.this.name
-  }
-}
-
-# SCALE IN
-resource "aws_autoscaling_policy" "scale_in" {
-  name                   = "${var.project_name}-scale-in"
-  autoscaling_group_name = aws_autoscaling_group.this.name
-  adjustment_type        = "ChangeInCapacity"
-  scaling_adjustment     = -1
-  cooldown               = 60
-}
-
-resource "aws_cloudwatch_metric_alarm" "cpu_low" {
-  alarm_name          = "${var.project_name}-cpu-low"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 2
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = 60
-  statistic           = "Average"
-  threshold           = 30
-
-  alarm_actions = [aws_autoscaling_policy.scale_in.arn]
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.this.name
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ASGAverageCPUUtilization"
+    }
+    target_value = var.target_cpu_percent
   }
 }

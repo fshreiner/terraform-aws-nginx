@@ -1,0 +1,12 @@
+# Copie para terraform.tfvars e ajuste (terraform.tfvars costuma estar no .gitignore).
+
+project_name  = "nginx-lab"
+environment   = "lab"
+aws_region      = "us-east-1"
+
+remote_state_bucket         = "terraform-states-fshreiner"
+remote_state_key_network    = "network/terraform.tfstate"
+remote_state_key_foundation = "foundation/terraform.tfstate"
+
+domain_name           = "fabioshreiner.com.br"
+app_record_hostname   = "nginx"

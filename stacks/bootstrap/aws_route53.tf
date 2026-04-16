@@ -1,3 +1,3 @@
 resource "aws_route53_zone" "this" {
-  name = "fabioshreiner.com.br"
+  name = var.dns_zone_name
 }

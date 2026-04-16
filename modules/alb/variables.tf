@@ -20,5 +20,5 @@ variable "alb_sg_id" {
 
 variable "certificate_arn" {
   description = "ACM Certificate ARN"
-  type = string
+  type        = string
 }

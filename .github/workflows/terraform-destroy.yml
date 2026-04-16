@@ -1,0 +1,87 @@
+name: Terraform Destroy (lab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Digite exatamente DESTROY para desmontar compute e depois network"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-infra-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: true
+
+jobs:
+  validate-confirm:
+    name: Confirmar intenção
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar texto de confirmação
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
+            echo "::error::Para rodar o destroy, o campo de confirmação deve ser exatamente: DESTROY"
+            exit 1
+          fi
+          echo "Confirmação aceita."
+
+  destroy-compute:
+    name: Destroy (compute)
+    needs: validate-confirm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/compute
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+
+  destroy-network:
+    name: Destroy (network)
+    needs: destroy-compute
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stacks/network
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
