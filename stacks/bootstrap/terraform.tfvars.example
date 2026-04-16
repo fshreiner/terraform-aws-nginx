@@ -1,8 +1,7 @@
 # Copie para terraform.tfvars (terraform.tfvars costuma estar no .gitignore).
 
-region             = "us-east-1"
-project_name       = "terraform-bootstrap"
-environment        = "lab"
-state_bucket_name  = "terraform-states-fshreiner"
-lock_table_name    = "terraform-locks"
-dns_zone_name      = "fabioshreiner.com.br"
+region            = "us-east-1"
+project_name      = "terraform-bootstrap"
+environment       = "lab"
+state_bucket_name = "terraform-states-fshreiner"
+dns_zone_name     = "fabioshreiner.com.br"

@@ -19,10 +19,6 @@ variable "state_bucket_name" {
   type = string
 }
 
-variable "lock_table_name" {
-  type = string
-}
-
 variable "dns_zone_name" {
   description = "Nome da zona pública no Route 53 (ex.: exemplo.com.br)"
   type        = string
