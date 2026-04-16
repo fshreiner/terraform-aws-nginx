@@ -81,7 +81,7 @@ Fluxo de tráfego: **Internet → ALB (público) → instâncias (privadas)**. O
 
 ## Stack de tecnologias
 
-- **Terraform** (≥ 1.10 — necessário para `use_lockfile` no backend S3)
+- **Terraform** (≥ 1.10 — necessário para `use_lockfile` no backend S3; a CI fixa **1.10.5**, última patch publicada da série 1.10 no momento da correção)
 - **AWS:** VPC, EC2, ALB, Auto Scaling, CloudWatch, ACM, Route 53, S3
 - **SO / app:** Ubuntu, Nginx
 - **CI:** GitHub Actions

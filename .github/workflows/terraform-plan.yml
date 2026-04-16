@@ -26,9 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.10.6"
+          terraform_version: "1.10.5"
 
       - name: Terraform fmt (check)
         run: terraform fmt -check -recursive stacks modules
@@ -50,9 +50,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.10.6"
+          terraform_version: "1.10.5"
 
       - name: Terraform Init
         run: terraform init -input=false
@@ -80,9 +80,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: "1.10.6"
+          terraform_version: "1.10.5"
 
       - name: Terraform Init
         run: terraform init -input=false
