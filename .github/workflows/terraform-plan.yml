@@ -28,7 +28,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.6"
 
       - name: Terraform fmt (check)
         run: terraform fmt -check -recursive stacks modules
@@ -52,7 +52,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.6"
 
       - name: Terraform Init
         run: terraform init -input=false
@@ -82,7 +82,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.6"
 
       - name: Terraform Init
         run: terraform init -input=false

@@ -20,7 +20,7 @@ Demonstrar na prática **como modelar, versionar e entregar infraestrutura** com
 | **AWS** | VPC, subnets públicas/privadas, IGW, NAT, ALB, ASG, ACM, Route 53, CloudWatch |
 | **Rede** | Carga na borda pública; aplicação em subnets privadas sem IP público nas instâncias |
 | **Segurança em camadas** | Security groups (ALB ↔ EC2), TLS (ACM), redirecionamento HTTP→HTTPS |
-| **Operação** | State remoto (S3 + lock DynamoDB), GitHub Actions (plan / apply / destroy manual) |
+| **Operação** | State remoto no S3 com **lock nativo** (`use_lockfile`), GitHub Actions (plan / apply / destroy manual) |
 | **FinOps (lab)** | Workflow opcional para desmontar stacks e evitar custo contínuo |
 
 ---
@@ -55,7 +55,7 @@ Fluxo de tráfego: **Internet → ALB (público) → instâncias (privadas)**. O
 
 | Caminho | Função |
 |---------|--------|
-| `stacks/bootstrap` | Base para state remoto (S3, DynamoDB) e zona DNS no Route 53 (*normalmente aplicado manualmente no início do lab*) |
+| `stacks/bootstrap` | Bucket de state no S3 (com bloqueio de acesso público), zona DNS no Route 53 (*normalmente aplicado manualmente no início do lab*) |
 | `stacks/network` | VPC, subnets, IGW, NAT, rotas |
 | `stacks/compute` | Security groups, ALB, ASG, EC2, certificado ACM e registros DNS para o app |
 | `modules/` | Módulos reutilizáveis (VPC, ALB, ASG, security groups) |
@@ -81,8 +81,8 @@ Fluxo de tráfego: **Internet → ALB (público) → instâncias (privadas)**. O
 
 ## Stack de tecnologias
 
-- **Terraform** (≥ 1.9)
-- **AWS:** VPC, EC2, ALB, Auto Scaling, CloudWatch, ACM, Route 53, S3, DynamoDB
+- **Terraform** (≥ 1.10 — necessário para `use_lockfile` no backend S3)
+- **AWS:** VPC, EC2, ALB, Auto Scaling, CloudWatch, ACM, Route 53, S3
 - **SO / app:** Ubuntu, Nginx
 - **CI:** GitHub Actions
 
@@ -96,6 +96,8 @@ Fluxo de tráfego: **Internet → ALB (público) → instâncias (privadas)**. O
 4. O **bootstrap** trata do backend de state e da zona DNS; em labs costuma ser passo inicial e fora do fluxo automático de apply/destroy das stacks de app.
 
 *(Detalhes de comandos `terraform init` / `apply` variam conforme backend e conta; use sempre `terraform plan` antes do `apply`.)*
+
+**Backend:** o lock de state usa o recurso nativo do S3 (`use_lockfile`), exigindo **Terraform ≥ 1.10**. Depois de puxar essas alterações, execute `terraform init -reconfigure` em cada stack (`bootstrap`, `network`, `compute`). Se o seu `terraform.tfvars` do bootstrap ainda definir `lock_table_name`, apague essa linha. Se existir uma tabela DynamoDB antiga só para lock, o próximo `apply` do bootstrap pode **removê-la** da conta.
 
 ---
 
